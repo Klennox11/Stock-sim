@@ -1,0 +1,11 @@
+[project]
+name = "stock-sim"
+version = "0.1.0"
+description = "Paper-trading stock simulator: SMA crossover backtest with fees and a terminal HUD"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "pandas>=3.1.1",
+    "rich>=15.0.0",
+    "yfinance>=1.8.0",
+]

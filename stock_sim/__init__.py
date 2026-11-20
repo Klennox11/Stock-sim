@@ -1,0 +1,1 @@
+"""Stock paper-trading simulator."""

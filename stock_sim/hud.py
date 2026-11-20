@@ -1,0 +1,53 @@
+"""Terminal 'HUD' look: black background, cyan / green / white text."""
+import numpy as np
+import pandas as pd
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.theme import Theme
+
+THEME = Theme({"hud": "bold cyan", "good": "bold green", "bad": "bold red", "dim": "grey50", "txt": "white"})
+console = Console(theme=THEME, style="white on black", highlight=False)
+
+BLOCKS = "▁▂▃▄▅▆▇█"
+
+
+def sparkline(series: pd.Series, width: int = 64) -> str:
+    """Squash a price/equity series into one line of block characters."""
+    vals = series.values
+    idx = np.linspace(0, len(vals) - 1, min(width, len(vals))).astype(int)
+    pts = vals[idx]
+    lo, hi = pts.min(), pts.max()
+    span = hi - lo or 1
+    return "".join(BLOCKS[int((p - lo) / span * (len(BLOCKS) - 1))] for p in pts)
+
+
+def fmt(key: str, val) -> str:
+    if isinstance(val, int):
+        return f"{val}"
+    if key in ("Final value",):
+        return f"${val:,.0f}"
+    if key in ("Sharpe ratio",):
+        return f"{val:.2f}"
+    return f"{val * 100:,.1f}%"
+
+
+def panel(body, title: str, style: str = "cyan") -> Panel:
+    return Panel(body, title=f"[hud]// {title}[/]", border_style=style, style="on black")
+
+
+def compare_table(title: str, strat: dict, bench: dict) -> Table:
+    t = Table(title=f"[hud]{title}[/]", border_style="cyan", header_style="bold white", style="on black")
+    t.add_column("Metric", style="txt")
+    t.add_column("Strategy", justify="right")
+    t.add_column("Buy & Hold", justify="right")
+    higher_is_better = {"Final value", "Total return", "Yearly return (CAGR)", "Max drawdown", "Sharpe ratio"}
+    for k, v in strat.items():
+        b = bench.get(k)
+        if b is None:
+            t.add_row(k, f"[hud]{fmt(k, v)}[/]", "[dim]-[/]")
+            continue
+        win = v > b if k in higher_is_better else None
+        s_style = "good" if win else "bad"
+        t.add_row(k, f"[{s_style}]{fmt(k, v)}[/]", f"[txt]{fmt(k, b)}[/]")
+    return t
