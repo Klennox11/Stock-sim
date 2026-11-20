@@ -1,4 +1,7 @@
 """Terminal 'HUD' look: black background, cyan / green / white text."""
+import os
+import sys
+
 import numpy as np
 import pandas as pd
 from rich.console import Console
@@ -9,7 +12,10 @@ from rich.theme import Theme
 THEME = Theme({"hud": "bold cyan", "good": "bold green", "bad": "bold red", "dim": "grey50", "txt": "white"})
 console = Console(theme=THEME, style="white on black", highlight=False)
 
-BLOCKS = "▁▂▃▄▅▆▇█"
+# Windows Terminal (sets WT_SESSION) and Mac/Linux can draw block bars.
+# The old blue PowerShell window can't, so it gets plain characters instead.
+FANCY = sys.platform != "win32" or "WT_SESSION" in os.environ
+BLOCKS = "▁▂▃▄▅▆▇█" if FANCY else "_.-~=+*#"
 
 
 def sparkline(series: pd.Series, width: int = 64) -> str:
