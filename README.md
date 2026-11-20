@@ -18,10 +18,14 @@ open, so the backtest never "sees the future".
 uv run main.py backtest SPY
 uv run main.py backtest XIU.TO --fast 20 --slow 100
 uv run main.py backtest --demo      # fake prices, no internet
+uv run main.py sweep                # Step 2: many settings x many tickers
+uv run main.py sweep SPY XIU.TO ZEB.TO
 ```
 
 ## Roadmap
 1. [x] Backtest with fees, slippage, benchmark and out-of-sample check
-2. [ ] Parameter sweep (is the result luck or robust?)
+2. [x] Parameter sweep + walk-forward check (is the result luck or robust?)
+   - Lesson: on purely random fake prices (`sweep --demo`), ~40% of settings still "beat"
+     buy & hold. Some winners always appear by luck, so one good backtest proves nothing.
 3. [ ] Live paper trading with a simulated account + live HUD dashboard
 4. [ ] Connect to Alpaca / Interactive Brokers paper accounts
