@@ -44,7 +44,7 @@ class Rules:
 
 @dataclass
 class State:
-    logs: dict = field(default_factory=lambda: {b: deque(maxlen=7) for b in ("DATA", "STRATEGY", "RISK", "TRADER")})
+    logs: dict = field(default_factory=lambda: {b: deque(maxlen=25) for b in ("DATA", "STRATEGY", "RISK", "TRADER")})
     status: dict = field(default_factory=lambda: {b: "starting" for b in ("DATA", "STRATEGY", "RISK", "TRADER")})
     prices: dict = field(default_factory=dict)
     signals: dict = field(default_factory=dict)
