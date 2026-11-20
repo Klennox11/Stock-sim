@@ -5,6 +5,10 @@ Examples:
     uv run main.py backtest SHOP.TO --fast 20 --slow 100
     uv run main.py backtest --demo        (fake prices, no internet needed)
     uv run main.py sweep                  (Step 2: test many settings on many tickers)
+    uv run main.py live                   (Step 3: live paper trading, day-trading mode)
+    uv run main.py live --mode swing      (Step 3: swing-trading mode, daily bars)
+    uv run main.py live --demo            (fake market that is always open)
+    uv run main.py reset                  (wipe the paper account and start over)
 """
 import argparse
 
@@ -148,6 +152,18 @@ def cmd_sweep(a: argparse.Namespace) -> None:
     console.print(panel(Text(verdict, style=style), "VERDICT", "green"))
 
 
+def cmd_live(a: argparse.Namespace) -> None:
+    from stock_sim.live import run_live
+    run_live([t.upper() for t in a.tickers], a.mode, a.demo, a.cash, Costs(slippage_bps=a.slippage),
+             a.poll, a.cycles)
+
+
+def cmd_reset(a: argparse.Namespace) -> None:
+    from stock_sim.paper import PaperAccount
+    PaperAccount().reset()
+    console.print("[good]Paper account wiped. Next 'live' run starts fresh with $10,000.[/]")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="stock-sim", description="Paper-trading stock simulator")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -169,6 +185,20 @@ def main() -> None:
     w.add_argument("--start", default="2005-01-01", help="first date to download")
     w.add_argument("--demo", action="store_true", help="use fake prices (no internet)")
     w.set_defaults(func=cmd_sweep)
+
+    lv = sub.add_parser("live", help="Step 3: live paper trading with the bot team dashboard")
+    lv.add_argument("tickers", nargs="*", default=["SPY", "QQQ", "AAPL", "MSFT", "NVDA"],
+                    help="US symbols to watch (default: SPY QQQ AAPL MSFT NVDA)")
+    lv.add_argument("--mode", choices=["day", "swing"], default="day", help="day (5-min bars) or swing (daily bars)")
+    lv.add_argument("--cash", type=float, default=10_000, help="starting cash for a NEW account")
+    lv.add_argument("--slippage", type=float, default=5.0, help="slippage in basis points")
+    lv.add_argument("--poll", type=int, default=None, help="seconds between cycles")
+    lv.add_argument("--cycles", type=int, default=None, help="stop after N cycles (for testing)")
+    lv.add_argument("--demo", action="store_true", help="fake always-open market (separate account)")
+    lv.set_defaults(func=cmd_live)
+
+    rs = sub.add_parser("reset", help="wipe the paper account")
+    rs.set_defaults(func=cmd_reset)
     a = p.parse_args()
     a.func(a)
 

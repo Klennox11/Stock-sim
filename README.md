@@ -20,6 +20,10 @@ uv run main.py backtest XIU.TO --fast 20 --slow 100
 uv run main.py backtest --demo      # fake prices, no internet
 uv run main.py sweep                # Step 2: many settings x many tickers
 uv run main.py sweep SPY XIU.TO ZEB.TO
+uv run main.py live                 # Step 3: live paper trading (day mode, 5-min bars)
+uv run main.py live --mode swing    # swing mode (daily bars, 50/200)
+uv run main.py live --demo          # fake always-open market, to watch the bots work
+uv run main.py reset                # wipe the paper account
 ```
 
 ## Roadmap
@@ -27,5 +31,10 @@ uv run main.py sweep SPY XIU.TO ZEB.TO
 2. [x] Parameter sweep + walk-forward check (is the result luck or robust?)
    - Lesson: on purely random fake prices (`sweep --demo`), ~40% of settings still "beat"
      buy & hold. Some winners always appear by luck, so one good backtest proves nothing.
-3. [ ] Live paper trading with a simulated account + live HUD dashboard
+3. [x] Live paper trading: a team of 4 bots on one HUD dashboard
+   - DATA bot: downloads latest bars (Yahoo Finance, ~delayed) for the watchlist
+   - STRATEGY bot: moving-average crossover -> BUY / SELL / HOLD
+   - RISK bot: vetoes buys when market closed, after a 3% daily loss, near the close, or within a 15-min cooldown;
+     day mode force-sells everything at 3:55pm ET
+   - TRADER bot: fills orders in a fake account (SQLite, survives restarts) with commission + slippage
 4. [ ] Connect to Alpaca / Interactive Brokers paper accounts
