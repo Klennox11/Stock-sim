@@ -22,7 +22,13 @@ from rich.live import Live
 from rich.table import Table
 from rich.text import Text
 
-from .hud import console, panel, sparkline
+from rich import box
+
+from .fx import AMBER, CYAN, DIM, GREEN, RED, TEAL, WHITE, banner, blink, chart, gauge, hud_panel, pulse, tape
+from .hud import console
+
+# map the plain color names the bots log with to neon versions
+NEON = {"green": GREEN, "cyan": CYAN, "red": RED, "grey50": DIM, "white": WHITE}
 from .paper import DB, DEMO_DB, PaperAccount
 from .strategy import sma_signals
 
@@ -55,6 +61,8 @@ class State:
     day: object = None
     last_trade: dict = field(default_factory=dict)
     clock: str = ""
+    changes: dict = field(default_factory=dict)
+    market_open: bool = False
 
     def log(self, bot: str, msg: str, style: str = "white") -> None:
         self.logs[bot].append((datetime.now().strftime("%H:%M:%S"), msg, style))
@@ -126,6 +134,11 @@ def data_bot(feed, tickers, st: State) -> dict[str, pd.DataFrame]:
             df = feed.bars(t)
             out[t] = df
             st.prices[t] = float(df["Close"].iloc[-1])
+            # % change vs the previous day's last price
+            dates = df.index.date
+            prev = df["Close"][dates < dates[-1]]
+            ref = float(prev.iloc[-1]) if len(prev) else float(df["Close"].iloc[0])
+            st.changes[t] = (st.prices[t] / ref - 1) * 100
         except Exception as e:
             st.log("DATA", f"{t}: download failed ({type(e).__name__})", "red")
     st.log("DATA", f"got {len(out)}/{len(tickers)} tickers, last bar {feed.now():%H:%M} ET", "cyan")
@@ -207,57 +220,98 @@ def trader_bot(approved, acct: PaperAccount, feed, rules: Rules, st: State) -> N
 
 
 # ---------------------------------------------------------------- dashboard
+BOT_ROLES = {"DATA": "fetches prices", "STRATEGY": "moving-average crossover",
+             "RISK": "vetoes bad trades", "TRADER": "fills orders (fake $)"}
+
+
 def render(acct: PaperAccount, st: State, title: str, poll: int) -> Layout:
+    W, H = console.size.width, console.size.height
     equity = acct.equity(st.prices)
     pnl = equity - acct.start_cash
     realized, n_closed, n_win = acct.stats()
-    color = "bold green" if pnl >= 0 else "bold red"
-    secs = max(0, int(st.next_cycle - time.time()))
-    head = Text.assemble(
-        ("STOCK-SIM ", "bold cyan"), ("// LIVE PAPER TRADING ", "bold green"), (f"// {title}\n", "bold white"),
-        ("Equity ", "grey50"), (f"${equity:,.2f}  ", "bold white"),
-        ("P&L ", "grey50"), (f"${pnl:+,.2f} ({pnl / acct.start_cash:+.2%})  ", color),
-        ("Cash ", "grey50"), (f"${acct.cash:,.2f}  ", "white"),
-        ("Realized ", "grey50"), (f"${realized:+,.2f}  ", "green" if realized >= 0 else "red"),
-        ("Wins ", "grey50"), (f"{n_win}/{n_closed}  ", "white"),
-        ("Fees ", "grey50"), (f"${acct.fees:,.2f}\n", "white"),
-        ("Equity curve ", "grey50"), (sparkline(pd.Series(st.equity_hist or [equity]), 50), "cyan"),
-        (f"   {st.clock}  cycle #{st.cycle}, next in {secs}s   (Ctrl+C to stop)", "grey50"),
-    )
-
-    def bot_panel(name: str) -> object:
-        txt = Text()
-        fit = max(3, (console.size.height - 17) // 2 - 2)  # only the newest lines that fit on screen
-        for ts, msg, style in list(st.logs[name])[-fit:]:
-            txt.append(f"{ts} ", "grey50")
-            txt.append(msg + "\n", style)
-        return panel(txt, f"{name} BOT ({st.status[name]})", "green" if st.status[name] != "idle" else "cyan")
-
-    pos = Table(border_style="cyan", header_style="bold white", style="on black", expand=True)
-    for c in ("Ticker", "Signal", "Shares", "Avg cost", "Price", "P&L"):
-        pos.add_column(c, justify="right" if c not in ("Ticker", "Signal") else "left")
     held = acct.positions()
+    invested = equity - acct.cash
+    secs = max(0, int(st.next_cycle - time.time()))
+    up = pnl >= 0
+
+    # --- top-left: big title
+    title_box = Text.assemble(banner("STOCK-SIM"), ("\n"), (title, DIM))
+
+    # --- top-right: account status
+    status = Text()
+    status.append_text(blink("■ LIVE ", RED) if st.market_open else Text("■ CLOSED ", AMBER))
+    status.append(f"{st.clock}   ", WHITE)
+    status.append(f"cycle #{st.cycle} · next {secs}s · Ctrl+C to stop\n", DIM)
+    status.append("EQUITY ", DIM)
+    status.append(f"${equity:,.2f}   ", f"bold {WHITE}")
+    status.append("P&L ", DIM)
+    status.append(f"{'▲' if up else '▼'} ${abs(pnl):,.2f} ({pnl / acct.start_cash:+.2%})\n", f"bold {GREEN if up else RED}")
+    status.append("INVESTED ", DIM)
+    status.append_text(gauge(invested / equity if equity else 0, 18, CYAN))
+    status.append(f" {invested / equity:.0%}" if equity else "", CYAN)
+    status.append("   WINS ", DIM)
+    status.append(f"{n_win}/{n_closed}", WHITE)
+    status.append("   REALIZED ", DIM)
+    status.append(f"${realized:+,.2f}", GREEN if realized >= 0 else RED)
+    status.append("   FEES ", DIM)
+    status.append(f"${acct.fees:,.2f}", AMBER)
+
+    # --- bots
+    fit = max(3, (H - 22) // 2 - 2)
+
+    def bot_panel(name: str):
+        txt = Text()
+        for ts, msg, style in list(st.logs[name])[-fit:]:
+            txt.append(f"{ts} ", DIM)
+            txt.append("► ", TEAL)
+            txt.append(msg + "\n", NEON.get(style, style))
+        busy = st.status[name] != "idle"
+        head = Text.assemble(pulse(busy), " ", (f"{name} BOT", f"bold {CYAN}"), (f"  {st.status[name].upper()}", GREEN if busy else DIM))
+        return hud_panel(txt, head, busy, BOT_ROLES[name])
+
+    # --- positions
+    pos = Table(box=box.SIMPLE_HEAD, border_style=TEAL, header_style=f"bold {CYAN}", style="on black", expand=True, padding=(0, 1), show_edge=False)
+    for c in ("TICKER", "SIGNAL", "SHARES", "COST", "PRICE", "P&L"):
+        pos.add_column(c, justify="left" if c in ("TICKER", "SIGNAL") else "right")
     for t in sorted(set(st.prices) | set(held)):
         sig = st.signals.get(t, "-")
         px = st.prices.get(t, 0)
+        sig_t = Text(sig, GREEN if sig == "LONG" else DIM)
         if t in held:
-            s, avg, _ = held[t]
-            p = (px - avg) * s
-            pos.add_row(t, sig, str(s), f"${avg:,.2f}", f"${px:,.2f}", Text(f"${p:+,.2f}", "green" if p >= 0 else "red"))
+            s_, avg, _ = held[t]
+            p = (px - avg) * s_
+            pos.add_row(Text(t, f"bold {WHITE}"), sig_t, str(s_), f"${avg:,.2f}", f"${px:,.2f}",
+                        Text(f"{'▲' if p >= 0 else '▼'}${abs(p):,.2f}", GREEN if p >= 0 else RED))
         else:
-            pos.add_row(t, Text(sig, "grey50"), "-", "-", f"${px:,.2f}", "-")
+            pos.add_row(Text(t, WHITE), sig_t, Text("-", DIM), Text("-", DIM), f"${px:,.2f}", Text("-", DIM))
 
+    # --- trades
     trades = Text()
-    for ts, t, side, s, px, fee, p in acct.trades(8):
-        trades.append(f"{ts[5:16].replace('T', ' ')} {side:<4} {s:>4} {t:<6} @ ${px:,.2f}", "green" if side == "BUY" else "cyan")
-        trades.append(f"  {'' if p is None else f'P&L ${p:+,.2f}'}\n", "white")
+    for ts, t, side, s_, px, fee, p in acct.trades(9):
+        buy = side == "BUY"
+        trades.append(f"{ts[11:16]} ", DIM)
+        trades.append(f"{'►BUY ' if buy else '◄SELL'} ", f"bold {GREEN if buy else CYAN}")
+        trades.append(f"{s_} {t} ${px:,.2f}", WHITE)
+        if p is not None:
+            trades.append(f"  {'+' if p >= 0 else '-'}${abs(p):,.2f}", GREEN if p >= 0 else RED)
+        trades.append("\n")
+    if not trades.plain:
+        trades.append("no trades yet", DIM)
+
+    bottom_h = 13
+    chart_w = max(10, W * 2 // 7 - 14)
+    eq = hud_panel(chart(st.equity_hist or [equity], chart_w, bottom_h - 2), "EQUITY CURVE")
 
     lay = Layout()
-    lay.split_column(Layout(panel(head, "ACCOUNT"), size=5), Layout(name="bots"), Layout(name="bottom", size=12))
-    lay["bots"].split_row(*(Layout(name=b) for b in ("l", "r")))
+    lay.split_column(Layout(name="top", size=6), Layout(tape([(t, st.prices[t], st.changes.get(t, 0)) for t in sorted(st.prices)], W), size=1),
+                     Layout(name="bots"), Layout(name="bottom", size=bottom_h))
+    lay["top"].split_row(Layout(hud_panel(title_box, "PAPER TRADING TERMINAL", subtitle="no real money"), size=44),
+                         Layout(hud_panel(status, "ACCOUNT", up)))
+    lay["bots"].split_row(Layout(name="l"), Layout(name="r"))
     lay["bots"]["l"].split_column(Layout(bot_panel("DATA")), Layout(bot_panel("STRATEGY")))
     lay["bots"]["r"].split_column(Layout(bot_panel("RISK")), Layout(bot_panel("TRADER")))
-    lay["bottom"].split_row(Layout(panel(pos, "WATCHLIST & POSITIONS")), Layout(panel(trades, "RECENT TRADES")))
+    lay["bottom"].split_row(Layout(eq, ratio=2), Layout(hud_panel(pos, "WATCHLIST & POSITIONS"), ratio=3),
+                            Layout(hud_panel(trades, "TRADE LOG"), ratio=2))
     return lay
 
 
@@ -283,6 +337,7 @@ def run_live(tickers: list[str], mode: str, demo: bool, cash: float, costs, poll
                 if st.day != today:  # new trading day -> reset the daily loss limit
                     st.day, st.day_start_equity = today, None
                 st.clock = f"{feed.now():%a %b %d %H:%M} ET"
+                st.market_open = feed.market_open()
                 bars = data_bot(feed, tickers, st)
                 if st.day_start_equity is None and st.prices:
                     st.day_start_equity = acct.equity(st.prices)
