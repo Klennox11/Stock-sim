@@ -227,7 +227,8 @@ def render(acct: PaperAccount, st: State, title: str, poll: int) -> Layout:
 
     def bot_panel(name: str) -> object:
         txt = Text()
-        for ts, msg, style in list(st.logs[name]):
+        fit = max(3, (console.size.height - 17) // 2 - 2)  # only the newest lines that fit on screen
+        for ts, msg, style in list(st.logs[name])[-fit:]:
             txt.append(f"{ts} ", "grey50")
             txt.append(msg + "\n", style)
         return panel(txt, f"{name} BOT ({st.status[name]})", "green" if st.status[name] != "idle" else "cyan")
